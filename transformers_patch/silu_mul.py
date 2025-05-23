@@ -5,20 +5,18 @@ import torch.nn.functional as F
 class SiLUMul(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y):
-        z = F.silu(x) * y
-        ctx.save_for_backward(x, z)
+        t = F.silu(x)
+        z = t * y
+        ctx.save_for_backward(x, y)
         return z
 
     @staticmethod
     def backward(ctx, dz):
-        x, z = ctx.saved_tensors
-        with torch.enable_grad():
-            x = x.detach().requires_grad_()
-            t = F.silu(x)
-        y = z / t
+        x, y = ctx.saved_tensors
+        t = F.silu(x)
         dt = dz * y
-        torch.autograd.backward([t], [dt])
-        dx = x.grad
+        s = torch.sigmoid(x)
+        dx = dt * (s * (1 + x * (1 - s)))
         dy = dz * t
         return dx, dy
 

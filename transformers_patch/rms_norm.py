@@ -6,7 +6,7 @@ class RMSNorm(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, w, eps):
         dtype = x.dtype
-        x = x.to(torch.float32)
+        x = x.float()
         var = x.pow(2).mean(-1, keepdim=True)
         rstd = torch.rsqrt(var + eps)
         y = x * rstd
@@ -17,7 +17,7 @@ class RMSNorm(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dz):
         z, w, rstd = ctx.saved_tensors
-        w = w.to(torch.float32)
+        w = w.float()
         y = z / w
         dy = dz * w
         dx = rstd * (dy - y * (y * dy).mean(-1, keepdim=True))

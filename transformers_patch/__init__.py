@@ -1,8 +1,17 @@
 import torch
 import torch.nn.functional as F
-from transformers.models.qwen2 import modeling_qwen2
-from transformers.models.qwen3 import modeling_qwen3
-from transformers.loss.loss_utils import LOSS_MAPPING
+try:
+    from transformers.models.qwen2 import modeling_qwen2
+except:
+    modeling_qwen2 = None
+try:
+    from transformers.models.qwen3 import modeling_qwen3
+except:
+    modeling_qwen3 = None
+try:
+    from transformers.loss.loss_utils import LOSS_MAPPING
+except:
+    LOSS_MAPPING = {}
 
 from .rms_norm import RMSNorm
 from .silu_mul import SiLUMul
@@ -38,13 +47,15 @@ def ForCausalLMLoss(
     logits = logits.view(-1, vocab_size)
     shift_labels = shift_labels.view(-1)
     loss = CrossEntropyLoss.apply(logits, shift_labels)
-    return loss.mean()
+    return loss.sum() / num_items_in_batch if num_items_in_batch is not None else loss.mean()
 
 
-modeling_qwen2.Qwen2RMSNorm.forward = rms_norm_forward
-modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
-modeling_qwen2.Qwen2MLP.forward = mlp_forward
-modeling_qwen3.Qwen3MLP.forward = mlp_forward
-modeling_qwen2.apply_rotary_pos_emb = apply_rotary_pos_emb
-modeling_qwen3.apply_rotary_pos_emb = apply_rotary_pos_emb
+if modeling_qwen2 is not None:
+    modeling_qwen2.Qwen2RMSNorm.forward = rms_norm_forward
+    modeling_qwen2.Qwen2MLP.forward = mlp_forward
+    modeling_qwen2.apply_rotary_pos_emb = apply_rotary_pos_emb
+if modeling_qwen3 is not None:
+    modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
+    modeling_qwen3.Qwen3MLP.forward = mlp_forward
+    modeling_qwen3.apply_rotary_pos_emb = apply_rotary_pos_emb
 LOSS_MAPPING["ForCausalLM"] = ForCausalLMLoss
