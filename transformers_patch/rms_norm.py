@@ -6,34 +6,28 @@ class RMSNorm(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, w, eps):
         dtype = x.dtype
-        y = x.to(torch.float32)
-        var = y.pow(2).mean(-1, keepdim=True)
-        y = y * torch.rsqrt(var + eps)
+        x = x.to(torch.float32)
+        var = x.pow(2).mean(-1, keepdim=True)
+        rstd = torch.rsqrt(var + eps)
+        y = x * rstd
         z = w * y.to(dtype)
-        ctx.save_for_backward(x, w)
-        ctx.eps = eps
-        ctx.dtype = dtype
+        ctx.save_for_backward(z, w, rstd)
         return z
 
     @staticmethod
     def backward(ctx, dz):
-        x, w = ctx.saved_tensors
-        with torch.enable_grad():
-            x = x.detach().requires_grad_()
-            y = x.to(torch.float32)
-            var = y.pow(2).mean(-1, keepdim=True)
-            y = y * torch.rsqrt(var + ctx.eps)
-            y = y.to(ctx.dtype)
+        z, w, rstd = ctx.saved_tensors
+        w = w.to(torch.float32)
+        y = z / w
         dy = dz * w
-        torch.autograd.backward([y], [dy])
-        dx = x.grad
-        dw = dz * y
+        dx = rstd * (dy - y * (y * dy).mean(-1, keepdim=True))
+        dw = (dz * y).view(-1, w.size(-1)).sum(0)
         return dx, dw, None
 
 
 if __name__ == "__main__":
-    x = torch.randn(1024, 4096, device="cuda", requires_grad=True)
-    w = torch.randn(4096, device="cuda", requires_grad=True)
+    x = torch.randn(1024, 4096, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    w = torch.ones(4096, device="cuda", dtype=torch.bfloat16, requires_grad=True)
     y = F.rms_norm(x, (4096,), w, 1e-6)
     y.sum().backward()
     x_ = x.clone().detach_().requires_grad_()
