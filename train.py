@@ -33,7 +33,13 @@ args = SFTConfig(
         "gradient_accumulation_steps": "auto",
         "zero_optimization": {
             "stage": 1
-        }
+        },
+        "bf16": {
+            "enabled": True
+        },
+        "fp16": {
+            "enabled": False
+        },
     },
     gradient_checkpointing=False,
     report_to="none",

@@ -32,7 +32,6 @@ class RMSNorm(torch.autograd.Function):
 
 
 if __name__ == "__main__":
-    torch.manual_seed(0)
     x = torch.randn(1024, 4096, device="cuda", requires_grad=True)
     w = torch.randn(4096, device="cuda", requires_grad=True)
     y = F.rms_norm(x, (4096,), w, 1e-6)
@@ -41,6 +40,6 @@ if __name__ == "__main__":
     w_ = w.clone().detach_().requires_grad_()
     y_ = RMSNorm.apply(x_, w_, 1e-6)
     y_.sum().backward()
-    assert torch.allclose(y, y_)
-    assert torch.allclose(x.grad, x_.grad)
-    assert torch.allclose(w.grad, w_.grad)
+    torch.testing.assert_close(y, y_)
+    torch.testing.assert_close(x.grad, x_.grad)
+    torch.testing.assert_close(w.grad, w_.grad)

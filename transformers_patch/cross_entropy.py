@@ -125,5 +125,5 @@ if __name__ == "__main__":
     x_ = x.clone().detach_().requires_grad_()
     loss_ = CrossEntropyLoss.apply(x_, y)
     loss_.sum().backward()
-    assert torch.allclose(loss, loss_)
-    assert torch.allclose(x.grad, x_.grad)
+    torch.testing.assert_close(loss, loss_)
+    torch.testing.assert_close(x.grad, x_.grad)
