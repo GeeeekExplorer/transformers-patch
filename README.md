@@ -36,12 +36,9 @@ from transformers import AutoModel
 |----------------------------|------------------|--------------|-------------|
 | Model + Gradients          | 30.5 GB          | -            | -           |
 | ZeRO Optimizer States      | 11.4 GB          | -            | -           |
-| **Activations**            | -                | 37.7 GB      | 16.7 GB     |
-| **Total Memory Allocated** | -                | 79.6 GB      | 58.6 GB     |
+| **Activations**            | -                | 35.4 GB      | 17.8 GB     |
 
-✅ **55%** reduction in activation memory
-
-✅ **26%** reduction in total memory usage
+**50%** reduction in activation memory!
 
 ## Example Usage 📋
 
