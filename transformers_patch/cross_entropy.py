@@ -69,6 +69,7 @@ def _cross_entropy_backward(
 
 MAX_FUSED_SIZE = 65536
 class CrossEntropyLoss(torch.autograd.Function):
+    @torch.profiler.record_function("ce_fwd")
     @staticmethod
     def forward(ctx, logits, labels):
         n_rows, vocab_size = logits.shape
@@ -96,6 +97,7 @@ class CrossEntropyLoss(torch.autograd.Function):
         ctx.save_for_backward(logits, logsumexp, labels)
         return losses
 
+    @torch.profiler.record_function("ce_bwd")
     @staticmethod
     def backward(ctx, dlosses):
         logits, logsumexp, labels = ctx.saved_tensors

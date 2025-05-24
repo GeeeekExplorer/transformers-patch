@@ -3,6 +3,8 @@ import torch.nn.functional as F
 
 
 class SiLUMul(torch.autograd.Function):
+    @torch.profiler.record_function("silu_fwd")
+    @torch.compile
     @staticmethod
     def forward(ctx, x, y):
         t = F.silu(x)
@@ -10,6 +12,8 @@ class SiLUMul(torch.autograd.Function):
         ctx.save_for_backward(x, y)
         return z
 
+    @torch.profiler.record_function("silu_bwd")
+    @torch.compile
     @staticmethod
     def backward(ctx, dz):
         x, y = ctx.saved_tensors

@@ -3,6 +3,8 @@ import torch.nn.functional as F
 
 
 class RMSNorm(torch.autograd.Function):
+    @torch.profiler.record_function("rms_fwd")
+    @torch.compile
     @staticmethod
     def forward(ctx, x, w, eps):
         dtype = x.dtype
@@ -14,6 +16,8 @@ class RMSNorm(torch.autograd.Function):
         ctx.save_for_backward(z, w, rstd)
         return z
 
+    @torch.profiler.record_function("rms_bwd")
+    @torch.compile
     @staticmethod
     def backward(ctx, dz):
         z, w, rstd = ctx.saved_tensors
