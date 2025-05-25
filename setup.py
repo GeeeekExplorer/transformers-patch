@@ -10,6 +10,7 @@ setup(
     install_requires=[
         "torch>=2.4",
         "triton>=3.0",
+        "transformers>=4.51.0"
     ],
     python_requires=">=3.9",
 )

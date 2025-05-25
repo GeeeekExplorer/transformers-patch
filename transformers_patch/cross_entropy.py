@@ -4,33 +4,32 @@ import triton.language as tl
 
 
 @triton.jit
-def _chunked_cross_entropy_forward(
+def _cross_entropy_forward(
     logits_ptr,
     logits_row_stride,
     loss_ptr,
     logsumexp_ptr,
     labels_ptr,
     VOCAB_SIZE: tl.constexpr,
-    N_CHUNKS: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
     row_idx = tl.program_id(0)
-    chunk_idx = tl.program_id(1)
+    block_idx = tl.program_id(1)
     logits_ptr += row_idx * logits_row_stride
     loss_ptr += row_idx
-    logsumexp_ptr += row_idx * N_CHUNKS + chunk_idx
+    logsumexp_ptr += row_idx * tl.num_programs(1) + block_idx
     labels_ptr += row_idx
-    col_offsets = chunk_idx*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = col_offsets < VOCAB_SIZE
 
-    label_idx = tl.load(labels_ptr).to(tl.int32)
+    label = tl.load(labels_ptr)
+    col_offsets = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets < VOCAB_SIZE
     logits = tl.load(logits_ptr + col_offsets, mask=mask, other = -float("inf")).to(tl.float32)
-    c = tl.max(logits, 0)
-    logsumexp = c + tl.log(tl.sum(tl.exp(logits - c), 0))
-    if chunk_idx == 0:
-        if label_idx != -100:
-            x = tl.load(logits_ptr + label_idx).to(tl.float32)
-            loss = -1.0 * x
+    max_logits = tl.max(logits, 0)
+    logsumexp = max_logits + tl.log(tl.sum(tl.exp(logits - max_logits), 0))
+    if block_idx == 0:
+        if label != -100:
+            x = tl.load(logits_ptr + label).to(tl.float32)
+            loss = -x
         else:
             loss = 0.0
         tl.store(loss_ptr, loss)
@@ -51,44 +50,43 @@ def _cross_entropy_backward(
     row_idx = tl.program_id(0)
     block_idx = tl.program_id(1)
     logits_ptr += row_idx * logits_row_stride
-    dloss_ptr  += row_idx *  dloss_row_stride
-    col_offsets = block_idx*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    dloss_ptr += row_idx * dloss_row_stride
+    logsumexp_ptr += row_idx
+    labels_ptr += row_idx
+    col_offsets = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = col_offsets < VOCAB_SIZE
 
-    label_idx = tl.load(labels_ptr + row_idx).to(tl.int32)
-    if label_idx != -100:
+    label = tl.load(labels_ptr)
+    if label != -100:
         dloss = tl.load(dloss_ptr)
     else:
         dloss = 0.0
     x = tl.load(logits_ptr + col_offsets, mask=mask, other = -float("inf")).to(tl.float32)
-    logsumexp = tl.load(logsumexp_ptr + row_idx)
+    logsumexp = tl.load(logsumexp_ptr)
     y = tl.exp(x - logsumexp)
-    y = tl.where(col_offsets == label_idx, y - 1.0, y)
+    y = tl.where(col_offsets == label, y - 1.0, y)
     tl.store(logits_ptr + col_offsets, dloss * y, mask=mask)
 
 
-MAX_FUSED_SIZE = 65536
 class CrossEntropyLoss(torch.autograd.Function):
     @torch.profiler.record_function("ce_fwd")
     @staticmethod
     def forward(ctx, logits, labels):
-        n_rows, vocab_size = logits.shape
+        n, vocab_size = logits.shape
         device = logits.device
-        div, mod = divmod(vocab_size, MAX_FUSED_SIZE)
-        n_chunks = div + (mod != 0)
-        losses = torch.empty(n_rows, dtype=torch.float32, device=device)
-        logsumexp = torch.empty((n_rows, n_chunks,), dtype=torch.float32, device=device)
+        BLOCK_SIZE = 65536
+        grid = (n, triton.cdiv(vocab_size, BLOCK_SIZE))
+        losses = torch.empty(n, dtype=torch.float32, device=device)
+        logsumexp = torch.empty(grid, dtype=torch.float32, device=device)
 
         with torch.cuda.device(device):
-            _chunked_cross_entropy_forward[(n_rows, n_chunks,)](
+            _cross_entropy_forward[grid](
                 logits, logits.stride(0),
                 losses,
                 logsumexp,
                 labels,
                 VOCAB_SIZE=vocab_size,
-                N_CHUNKS=n_chunks,
-                BLOCK_SIZE=MAX_FUSED_SIZE,
-                num_warps=32,
+                BLOCK_SIZE=BLOCK_SIZE,
             )
             logsumexp = torch.logsumexp(logsumexp, dim=1)
             losses += logsumexp
@@ -101,27 +99,27 @@ class CrossEntropyLoss(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dlosses):
         logits, logsumexp, labels = ctx.saved_tensors
-        n_rows, vocab_size = logits.shape
-        BLOCK_SIZE = 4096
-        div, mod = divmod(vocab_size, BLOCK_SIZE)
-        n_blocks = div + (mod != 0)
+        n, vocab_size = logits.shape
+        BLOCK_SIZE = 16384
+        grid = (n, triton.cdiv(vocab_size, BLOCK_SIZE))
 
         with torch.cuda.device(dlosses.device):
-            _cross_entropy_backward[(n_rows, n_blocks,)](
+            _cross_entropy_backward[grid](
                 logits, logits.stride(0),
                 dlosses, dlosses.stride(0),
                 logsumexp,
                 labels,
                 VOCAB_SIZE=vocab_size,
                 BLOCK_SIZE=BLOCK_SIZE,
-                num_warps=8,
             )
-        return logits, None, None, None,
+        return logits, None
 
 
 if __name__ == "__main__":
-    x = torch.randn(1024, 128*1024, device="cuda", requires_grad=True)
-    y = torch.randint(0, 128*1024, (1024,), device="cuda")
+    n = 16384
+    vocab_size = 128*1024
+    x = torch.randn(n, vocab_size, device="cuda", requires_grad=True)
+    y = torch.randint(0, vocab_size, (n,), device="cuda")
     loss = torch.nn.functional.cross_entropy(x, y, reduction="none")
     loss.sum().backward()
     x_ = x.clone().detach_().requires_grad_()
