@@ -1,5 +1,8 @@
+import sys
+import inspect
 import torch
 import torch.nn.functional as F
+import transformers
 try:
     from transformers.models.qwen2 import modeling_qwen2
 except:
@@ -59,3 +62,27 @@ if modeling_qwen3 is not None:
     modeling_qwen3.Qwen3MLP.forward = mlp_forward
     modeling_qwen3.apply_rotary_pos_emb = apply_rotary_pos_emb
 LOSS_MAPPING["ForCausalLM"] = ForCausalLMLoss
+
+
+try:
+    old_func = transformers.modeling_flash_attention_utils._flash_attention_forward
+    source = inspect.getsource(old_func)
+    source = source.replace("(torch.diff(position_ids, dim=-1) >= 0).all()", "check_once(position_ids)")
+    source += """
+def check_once(position_ids):
+    if not hasattr(check_once, "cache"):
+        check_once.cache = (-1, False)
+    k = id(position_ids)
+    if k == check_once.cache[0]:
+        return check_once.cache[1]
+    v = (torch.diff(position_ids, dim=-1) >= 0).all().item()
+    check_once.cache = (k, v)
+    return v
+"""
+    exec(source, transformers.modeling_flash_attention_utils.__dict__)
+    new_func = transformers.modeling_flash_attention_utils._flash_attention_forward
+    for module in sys.modules.values():
+        if getattr(module, "_flash_attention_forward", None) is old_func:
+            setattr(module, "_flash_attention_forward", new_func)
+except:
+    pass
