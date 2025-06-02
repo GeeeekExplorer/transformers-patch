@@ -16,8 +16,8 @@ class RandomDataset(Dataset):
         return {"input_ids": torch.randint(0, 10000, (self.seq_len,)).tolist()}
 
 
-seq_len = 2048
-model_path = "/YOUR/PATH/Qwen3-8B"
+seq_len = 4096
+model_path = "Qwen/Qwen3-8B-Base"
 
 rank = int(os.getenv("LOCAL_RANK", "0"))
 dataset = RandomDataset(seq_len)
