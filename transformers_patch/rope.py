@@ -1,24 +1,20 @@
 import torch
 
 
-def rotate_half(x):
+def rotate_half(x, fwd=True):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def rotate_half_bwd(x):
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((x2, -x1), dim=-1)
+    if fwd:
+        return torch.cat((-x2, x1), dim=-1)
+    else:
+        return torch.cat((x2, -x1), dim=-1)
 
 
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1, fwd=True):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    rotate_half_ = rotate_half if fwd else rotate_half_bwd
-    q_embed = (q * cos) + (rotate_half_(q) * sin)
-    k_embed = (k * cos) + (rotate_half_(k) * sin)
+    q_embed = (q * cos) + (rotate_half(q, fwd) * sin)
+    k_embed = (k * cos) + (rotate_half(k, fwd) * sin)
     return q_embed, k_embed
 
 
