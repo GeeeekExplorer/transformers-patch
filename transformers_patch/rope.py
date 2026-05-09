@@ -31,9 +31,9 @@ class RotaryEmbedding(torch.autograd.Function):
     @torch.profiler.record_function("rope_bwd")
     @torch.compile
     @staticmethod
-    def backward(ctx, dq, qk):
+    def backward(ctx, dq, dk):
         cos, sin = ctx.saved_tensors
-        dq, dk = apply_rotary_pos_emb(dq, qk, cos, sin, ctx.unsqueeze_dim, False)
+        dq, dk = apply_rotary_pos_emb(dq, dk, cos, sin, ctx.unsqueeze_dim, False)
         return dq, dk, None, None, None
 
 
